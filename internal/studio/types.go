@@ -57,6 +57,13 @@ type RelationInfo struct {
 	References string `json:"references"`
 }
 
+// DataFieldRequest represents a field value to set in create/update operations.
+type DataFieldRequest struct {
+	FieldName string `json:"fieldName"`
+	ParamName string `json:"paramName"`
+	ParamType string `json:"paramType"`
+}
+
 // PrimQueryRequest is the JSON request body for the nested query builder endpoint.
 type PrimQueryRequest struct {
 	Name       string               `json:"name"`
@@ -68,6 +75,7 @@ type PrimQueryRequest struct {
 	Limit      int                  `json:"limit"`
 	Skip       int                  `json:"skip"`
 	Include    []IncludeNodeRequest `json:"include"`
+	Data       []DataFieldRequest   `json:"data"`
 	OutputPath string               `json:"outputPath,omitempty"`
 }
 
@@ -83,4 +91,5 @@ type IncludeNodeRequest struct {
 	OrderBy      []OrderClause        `json:"orderBy"`
 	Limit        int                  `json:"limit"`
 	Include      []IncludeNodeRequest `json:"include"`
+	CreateData   []DataFieldRequest   `json:"createData"`
 }

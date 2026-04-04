@@ -71,7 +71,7 @@ func EnsureDatabase(databaseURL string) error {
 func ResolveDatabaseURL(schemaURL string) string {
 	s := strings.TrimSpace(schemaURL)
 
-	// Handle env("VAR_NAME") pattern.
+	// Handle env("VAR_NAME") pattern (if parser didn't unwrap it).
 	if strings.HasPrefix(s, `env("`) && strings.HasSuffix(s, `")`) {
 		varName := s[5 : len(s)-2]
 		return os.Getenv(varName)
@@ -79,10 +79,21 @@ func ResolveDatabaseURL(schemaURL string) string {
 
 	// Strip surrounding quotes from a literal string.
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
+		s = s[1 : len(s)-1]
 	}
 
-	return s
+	// If it looks like a URL (has ://), use it directly.
+	if strings.Contains(s, "://") {
+		return s
+	}
+
+	// Otherwise it's likely an env var name (parser already unwrapped env()).
+	// Try to resolve it from the environment.
+	if val := os.Getenv(s); val != "" {
+		return val
+	}
+
+	return ""
 }
 
 // ParseDatabaseURL extracts the individual components from a PostgreSQL URL.

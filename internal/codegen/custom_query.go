@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -29,6 +30,9 @@ const (
 	QueryOpFindMany QueryOp = "find_many"
 	QueryOpFindOne  QueryOp = "find_one"
 	QueryOpCount    QueryOp = "count"
+	QueryOpCreate   QueryOp = "create"
+	QueryOpUpdate   QueryOp = "update"
+	QueryOpDelete   QueryOp = "delete"
 )
 
 // WhereClause represents a single filter condition in a custom query.
@@ -494,9 +498,20 @@ func makeFieldSet(fields []string) map[string]bool {
 // AppendToRepoFile appends generated method code to an existing Go repository
 // file. It inserts the code at the end of the file with proper spacing.
 func AppendToRepoFile(filePath string, code string) error {
+	// Create parent directories if they don't exist.
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("codegen: create dir: %w", err)
+	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("codegen: read repo file: %w", err)
+		if os.IsNotExist(err) {
+			// File doesn't exist — create it with a package header.
+			data = []byte("package db\n")
+		} else {
+			return fmt.Errorf("codegen: read repo file: %w", err)
+		}
 	}
 
 	content := string(data)

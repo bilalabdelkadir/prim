@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { PrimQuery } from '../types'
 import CodePreview from './CodePreview'
+import GoSyntaxHighlighter from './GoSyntaxHighlighter'
 
 interface LiveCodePreviewProps {
   query: PrimQuery | null;
@@ -9,8 +10,26 @@ interface LiveCodePreviewProps {
 function LiveCodePreview({ query }: LiveCodePreviewProps) {
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [fullscreen])
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
@@ -68,9 +87,20 @@ function LiveCodePreview({ query }: LiveCodePreviewProps) {
         <span className="text-[10px] tracking-[0.2em] uppercase text-white/30 font-medium">
           GENERATED OUTPUT
         </span>
-        {loading && (
-          <span className="w-1.5 h-1.5 rounded-full bg-[#05df72] animate-pulse" />
-        )}
+        <div className="flex items-center gap-3">
+          {code && (
+            <button
+              onClick={() => setFullscreen(true)}
+              className="ui-text-label text-white/20 hover:text-white/50 cursor-pointer transition-colors"
+              title="Fullscreen (F11)"
+            >
+              EXPAND ↗
+            </button>
+          )}
+          {loading && (
+            <span className="w-1.5 h-1.5 rounded-full bg-[#05df72] animate-pulse" />
+          )}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto">
         {code ? (
@@ -83,6 +113,32 @@ function LiveCodePreview({ query }: LiveCodePreviewProps) {
           </div>
         )}
       </div>
+
+      {fullscreen && code && (
+        <div className="fixed inset-0 z-50 bg-[#0a0a0a]/95 backdrop-blur-sm flex flex-col animate-in">
+          <div className="flex items-center justify-between px-6 py-3 border-b border-white/[0.06]">
+            <span className="ui-text-label text-white/30">GENERATED CODE</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleCopy}
+                className="ui-text-label cursor-pointer transition-colors"
+                style={{ color: copied ? '#05df72' : 'rgba(255,255,255,0.3)' }}
+              >
+                {copied ? 'COPIED' : 'COPY'}
+              </button>
+              <button
+                onClick={() => setFullscreen(false)}
+                className="text-white/30 hover:text-white/70 cursor-pointer transition-colors ui-text-label"
+              >
+                ESC ✕
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            <GoSyntaxHighlighter code={code} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

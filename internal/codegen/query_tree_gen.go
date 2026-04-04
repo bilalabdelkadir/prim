@@ -26,8 +26,10 @@ func GeneratePrimQuery(q *PrimQuery, s *schema.Schema) (code string, structs str
 
 	prefix := q.Name
 
-	// Generate result structs.
-	generateResultStruct(&structBuf, prefix, "", model, q.Select, q.Include, s, "")
+	// Generate result structs (delete has no result struct).
+	if q.Operation != QueryOpDelete {
+		generateResultStruct(&structBuf, prefix, "", model, q.Select, q.Include, s, "")
+	}
 
 	// Generate method.
 	if err := generateMethod(&methodBuf, q, model, prefix, s); err != nil {
@@ -122,6 +124,14 @@ func generateMethod(b *strings.Builder, q *PrimQuery, model *schema.Model, prefi
 	b.WriteString("Repository) ")
 	b.WriteString(q.Name)
 	b.WriteString("(ctx context.Context")
+
+	// For create/update, data params come first.
+	for _, d := range q.Data {
+		b.WriteString(", ")
+		b.WriteString(d.ParamName)
+		b.WriteString(" ")
+		b.WriteString(d.ParamType)
+	}
 	for _, w := range q.Where {
 		if w.Operator == "is_null" {
 			continue
@@ -146,6 +156,16 @@ func generateMethod(b *strings.Builder, q *PrimQuery, model *schema.Model, prefi
 		b.WriteString("([]*")
 		b.WriteString(structName)
 		b.WriteString(", error)")
+	case QueryOpCreate:
+		b.WriteString("(*")
+		b.WriteString(structName)
+		b.WriteString(", error)")
+	case QueryOpUpdate:
+		b.WriteString("(*")
+		b.WriteString(structName)
+		b.WriteString(", error)")
+	case QueryOpDelete:
+		b.WriteString("error")
 	}
 	b.WriteString(" {\n")
 
@@ -162,14 +182,333 @@ func generateMethod(b *strings.Builder, q *PrimQuery, model *schema.Model, prefi
 		generateRootQuery(b, rootTable, rootCols, q, model, structName, s, prefix, true)
 	case QueryOpFindMany:
 		generateRootQuery(b, rootTable, rootCols, q, model, structName, s, prefix, false)
+	case QueryOpCreate:
+		generateCreateBody(b, rootTable, rootCols, q, model, structName, s, prefix)
+	case QueryOpUpdate:
+		generateUpdateBody(b, rootTable, rootCols, q, model, structName, s, prefix)
+	case QueryOpDelete:
+		generateDeleteBody(b, rootTable, q)
 	}
 
 	b.WriteString("}\n")
 	return nil
 }
 
+func generateCreateBody(b *strings.Builder, table string, cols []string, q *PrimQuery, model *schema.Model, structName string, s *schema.Schema, prefix string) {
+	// Build INSERT columns and parameter placeholders from Data fields.
+	var insertCols []string
+	var insertParams []string
+	var insertArgs []string
+	for i, d := range q.Data {
+		insertCols = append(insertCols, `"`+d.FieldName+`"`)
+		insertParams = append(insertParams, "$"+strconv.Itoa(i+1))
+		insertArgs = append(insertArgs, d.ParamName)
+	}
+
+	// Build RETURNING columns.
+	var retCols []string
+	for _, c := range cols {
+		retCols = append(retCols, `"`+c+`"`)
+	}
+
+	b.WriteString("\tu := &")
+	b.WriteString(structName)
+	b.WriteString("{}\n")
+	b.WriteString("\terr := r.db.QueryRowContext(ctx,\n")
+	b.WriteString("\t\t`INSERT INTO \"")
+	b.WriteString(table)
+	b.WriteString("\" (")
+	b.WriteString(strings.Join(insertCols, ", "))
+	b.WriteString(") VALUES (")
+	b.WriteString(strings.Join(insertParams, ", "))
+	b.WriteString(") RETURNING ")
+	b.WriteString(strings.Join(retCols, ", "))
+	b.WriteString("`,\n")
+	if len(insertArgs) > 0 {
+		b.WriteString("\t\t")
+		b.WriteString(strings.Join(insertArgs, ", "))
+		b.WriteString(",\n")
+	}
+	b.WriteString("\t).Scan(")
+	writeScanArgs(b, cols, "u")
+	b.WriteString(")\n")
+	b.WriteString("\tif err != nil {\n")
+	b.WriteString("\t\treturn nil, err\n")
+	b.WriteString("\t}\n")
+
+	// Handle nested creates for includes with CreateData.
+	for _, inc := range q.Include {
+		if len(inc.CreateData) == 0 {
+			continue
+		}
+		childModel := findModel(s, inc.ModelName)
+		if childModel == nil {
+			continue
+		}
+		childTable := tableName(inc.ModelName)
+		childCols := buildChildSelectCols(childModel, inc.Select, inc.ForeignKey)
+
+		var childInsertCols []string
+		var childInsertParams []string
+		var childInsertArgs []string
+		paramIdx := 1
+
+		// FK column referencing parent.
+		childInsertCols = append(childInsertCols, `"`+inc.ForeignKey+`"`)
+		childInsertParams = append(childInsertParams, "$"+strconv.Itoa(paramIdx))
+		childInsertArgs = append(childInsertArgs, "u.Id")
+		paramIdx++
+
+		for _, d := range inc.CreateData {
+			childInsertCols = append(childInsertCols, `"`+d.FieldName+`"`)
+			childInsertParams = append(childInsertParams, "$"+strconv.Itoa(paramIdx))
+			childInsertArgs = append(childInsertArgs, d.ParamName)
+			paramIdx++
+		}
+
+		var childRetCols []string
+		for _, c := range childCols {
+			childRetCols = append(childRetCols, `"`+c+`"`)
+		}
+
+		childStructName := prefix + goName(inc.RelationName) + "Result"
+		childVar := strings.ToLower(inc.RelationName[:1]) + inc.RelationName[1:]
+
+		b.WriteString("\t")
+		b.WriteString(childVar)
+		b.WriteString(" := &")
+		b.WriteString(childStructName)
+		b.WriteString("{}\n")
+		b.WriteString("\terr = r.db.QueryRowContext(ctx,\n")
+		b.WriteString("\t\t`INSERT INTO \"")
+		b.WriteString(childTable)
+		b.WriteString("\" (")
+		b.WriteString(strings.Join(childInsertCols, ", "))
+		b.WriteString(") VALUES (")
+		b.WriteString(strings.Join(childInsertParams, ", "))
+		b.WriteString(") RETURNING ")
+		b.WriteString(strings.Join(childRetCols, ", "))
+		b.WriteString("`,\n")
+		b.WriteString("\t\t")
+		b.WriteString(strings.Join(childInsertArgs, ", "))
+		b.WriteString(",\n")
+		b.WriteString("\t).Scan(")
+		writeScanArgs(b, childCols, childVar)
+		b.WriteString(")\n")
+		b.WriteString("\tif err != nil {\n")
+		b.WriteString("\t\treturn nil, err\n")
+		b.WriteString("\t}\n")
+
+		// Attach child to parent.
+		if inc.IsArray {
+			b.WriteString("\tu.")
+			b.WriteString(goName(inc.RelationName))
+			b.WriteString(" = append(u.")
+			b.WriteString(goName(inc.RelationName))
+			b.WriteString(", ")
+			b.WriteString(childVar)
+			b.WriteString(")\n")
+		} else {
+			b.WriteString("\tu.")
+			b.WriteString(goName(inc.RelationName))
+			b.WriteString(" = ")
+			b.WriteString(childVar)
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("\treturn u, nil\n")
+}
+
+func generateUpdateBody(b *strings.Builder, table string, cols []string, q *PrimQuery, model *schema.Model, structName string, s *schema.Schema, prefix string) {
+	// Build SET clause from Data fields.
+	var setClauses []string
+	var setArgs []string
+	paramIdx := 1
+	for _, d := range q.Data {
+		setClauses = append(setClauses, `"`+d.FieldName+`" = $`+strconv.Itoa(paramIdx))
+		setArgs = append(setArgs, d.ParamName)
+		paramIdx++
+	}
+
+	// Build RETURNING columns.
+	var retCols []string
+	for _, c := range cols {
+		retCols = append(retCols, `"`+c+`"`)
+	}
+
+	b.WriteString("\tu := &")
+	b.WriteString(structName)
+	b.WriteString("{}\n")
+	b.WriteString("\terr := r.db.QueryRowContext(ctx,\n")
+	b.WriteString("\t\t`UPDATE \"")
+	b.WriteString(table)
+	b.WriteString("\" SET ")
+	b.WriteString(strings.Join(setClauses, ", "))
+
+	// WHERE clause.
+	if len(q.Where) > 0 {
+		b.WriteString(" WHERE ")
+		for i, w := range q.Where {
+			if i > 0 {
+				b.WriteString(" AND ")
+			}
+			b.WriteString(`"`)
+			b.WriteString(w.Field)
+			b.WriteString(`" `)
+			b.WriteString(sqlOperator(w.Operator))
+			if w.Operator != "is_null" {
+				b.WriteString(" $")
+				b.WriteString(strconv.Itoa(paramIdx))
+				paramIdx++
+			}
+		}
+	}
+
+	b.WriteString(" RETURNING ")
+	b.WriteString(strings.Join(retCols, ", "))
+	b.WriteString("`,\n")
+
+	// Args: data args then where args.
+	var allArgs []string
+	allArgs = append(allArgs, setArgs...)
+	for _, w := range q.Where {
+		if w.Operator != "is_null" {
+			allArgs = append(allArgs, w.ParamName)
+		}
+	}
+	if len(allArgs) > 0 {
+		b.WriteString("\t\t")
+		b.WriteString(strings.Join(allArgs, ", "))
+		b.WriteString(",\n")
+	}
+
+	b.WriteString("\t).Scan(")
+	writeScanArgs(b, cols, "u")
+	b.WriteString(")\n")
+	b.WriteString("\tif err != nil {\n")
+	b.WriteString("\t\treturn nil, err\n")
+	b.WriteString("\t}\n")
+
+	// If includes exist, fetch related data (same as find_one).
+	if len(q.Include) > 0 {
+		b.WriteString("\tparentIDs := map[int]int{u.Id: 0}\n")
+		b.WriteString("\tresults := []*")
+		b.WriteString(structName)
+		b.WriteString("{u}\n")
+		generateIncludeQueries(b, q.Include, s, prefix, "", "results", "parentIDs", "Id")
+		b.WriteString("\treturn results[0], nil\n")
+	} else {
+		b.WriteString("\treturn u, nil\n")
+	}
+}
+
+func generateDeleteBody(b *strings.Builder, table string, q *PrimQuery) {
+	// If includes are present, delete children first.
+	for _, inc := range q.Include {
+		childTable := tableName(inc.ModelName)
+		b.WriteString("\t_, err := r.db.ExecContext(ctx,\n")
+		b.WriteString("\t\t`DELETE FROM \"")
+		b.WriteString(childTable)
+		b.WriteString("\" WHERE \"")
+		b.WriteString(inc.ForeignKey)
+		b.WriteString("\" IN (SELECT \"")
+		b.WriteString(inc.ReferenceKey)
+		b.WriteString("\" FROM \"")
+		b.WriteString(table)
+		b.WriteString("\"")
+
+		paramIdx := 1
+		if len(q.Where) > 0 {
+			b.WriteString(" WHERE ")
+			for i, w := range q.Where {
+				if i > 0 {
+					b.WriteString(" AND ")
+				}
+				b.WriteString(`"`)
+				b.WriteString(w.Field)
+				b.WriteString(`" `)
+				b.WriteString(sqlOperator(w.Operator))
+				if w.Operator != "is_null" {
+					b.WriteString(" $")
+					b.WriteString(strconv.Itoa(paramIdx))
+					paramIdx++
+				}
+			}
+		}
+
+		b.WriteString(")`,\n")
+		var args []string
+		for _, w := range q.Where {
+			if w.Operator != "is_null" {
+				args = append(args, w.ParamName)
+			}
+		}
+		if len(args) > 0 {
+			b.WriteString("\t\t")
+			b.WriteString(strings.Join(args, ", "))
+			b.WriteString(",\n")
+		}
+		b.WriteString("\t)\n")
+		b.WriteString("\tif err != nil {\n")
+		b.WriteString("\t\treturn err\n")
+		b.WriteString("\t}\n")
+	}
+
+	// Delete the parent record.
+	if len(q.Include) > 0 {
+		// We already declared err above, use = instead of :=
+		b.WriteString("\t_, err = r.db.ExecContext(ctx,\n")
+	} else {
+		b.WriteString("\t_, err := r.db.ExecContext(ctx,\n")
+	}
+	b.WriteString("\t\t`DELETE FROM \"")
+	b.WriteString(table)
+	b.WriteString("\"")
+
+	paramIdx := 1
+	if len(q.Where) > 0 {
+		b.WriteString(" WHERE ")
+		for i, w := range q.Where {
+			if i > 0 {
+				b.WriteString(" AND ")
+			}
+			b.WriteString(`"`)
+			b.WriteString(w.Field)
+			b.WriteString(`" `)
+			b.WriteString(sqlOperator(w.Operator))
+			if w.Operator != "is_null" {
+				b.WriteString(" $")
+				b.WriteString(strconv.Itoa(paramIdx))
+				paramIdx++
+			}
+		}
+	}
+
+	b.WriteString("`,\n")
+	var args []string
+	for _, w := range q.Where {
+		if w.Operator != "is_null" {
+			args = append(args, w.ParamName)
+		}
+	}
+	if len(args) > 0 {
+		b.WriteString("\t\t")
+		b.WriteString(strings.Join(args, ", "))
+		b.WriteString(",\n")
+	}
+	b.WriteString("\t)\n")
+	b.WriteString("\treturn err\n")
+}
+
 func collectIncludeParams(b *strings.Builder, includes []IncludeNode) {
 	for _, inc := range includes {
+		for _, d := range inc.CreateData {
+			b.WriteString(", ")
+			b.WriteString(d.ParamName)
+			b.WriteString(" ")
+			b.WriteString(d.ParamType)
+		}
 		for _, w := range inc.Where {
 			if w.Operator == "is_null" {
 				continue

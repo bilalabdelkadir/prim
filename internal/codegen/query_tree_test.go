@@ -379,3 +379,139 @@ func TestPrimQuery_SelectFieldsOnInclude(t *testing.T) {
 	assert.NotContains(t, childStruct, "Content")
 	assert.NotContains(t, childStruct, "Published")
 }
+
+func TestPrimQuery_SimpleCreate(t *testing.T) {
+	s := primTestSchema()
+	q := &PrimQuery{
+		Name:      "CreateUser",
+		ModelName: "User",
+		Operation: QueryOpCreate,
+		Data: []DataField{
+			{FieldName: "email", ParamName: "email", ParamType: "string"},
+			{FieldName: "name", ParamName: "name", ParamType: "*string"},
+		},
+	}
+
+	code, structs, err := GeneratePrimQuery(q, s)
+	require.NoError(t, err)
+
+	// Should have result struct.
+	assert.Contains(t, structs, "type CreateUserResult struct")
+	assert.Contains(t, structs, "Id int")
+	assert.Contains(t, structs, "Email string")
+
+	// Should have method with data params.
+	assert.Contains(t, code, "func (r *UserRepository) CreateUser(ctx context.Context, email string, name *string)")
+	assert.Contains(t, code, "(*CreateUserResult, error)")
+
+	// Should have INSERT INTO with correct columns.
+	assert.Contains(t, code, `INSERT INTO "users"`)
+	assert.Contains(t, code, `"email"`)
+	assert.Contains(t, code, `"name"`)
+	assert.Contains(t, code, "VALUES ($1, $2)")
+	assert.Contains(t, code, "RETURNING")
+
+	// Should have Scan for returned fields.
+	assert.Contains(t, code, "Scan(")
+}
+
+func TestPrimQuery_CreateWithNestedCreate(t *testing.T) {
+	s := primTestSchema()
+	q := &PrimQuery{
+		Name:      "CreateUserWithPost",
+		ModelName: "User",
+		Operation: QueryOpCreate,
+		Data: []DataField{
+			{FieldName: "email", ParamName: "email", ParamType: "string"},
+		},
+		Include: []IncludeNode{
+			{
+				RelationName: "posts",
+				ModelName:    "Post",
+				IsArray:      true,
+				ForeignKey:   "authorId",
+				ReferenceKey: "id",
+				CreateData: []DataField{
+					{FieldName: "title", ParamName: "postTitle", ParamType: "string"},
+				},
+			},
+		},
+	}
+
+	code, structs, err := GeneratePrimQuery(q, s)
+	require.NoError(t, err)
+
+	// Should have both parent and child structs.
+	assert.Contains(t, structs, "type CreateUserWithPostResult struct")
+	assert.Contains(t, structs, "type CreateUserWithPostPostsResult struct")
+
+	// Should have two INSERTs.
+	assert.Contains(t, code, `INSERT INTO "users"`)
+	assert.Contains(t, code, `INSERT INTO "posts"`)
+
+	// The child INSERT should reference the parent FK.
+	assert.Contains(t, code, `"authorId"`)
+	assert.Contains(t, code, "u.Id")
+
+	// Method signature should include nested create params.
+	assert.Contains(t, code, "postTitle string")
+}
+
+func TestPrimQuery_SimpleUpdate(t *testing.T) {
+	s := primTestSchema()
+	q := &PrimQuery{
+		Name:      "UpdateUserEmail",
+		ModelName: "User",
+		Operation: QueryOpUpdate,
+		Data: []DataField{
+			{FieldName: "email", ParamName: "email", ParamType: "string"},
+		},
+		Where: []WhereClause{
+			{Field: "id", Operator: "eq", ParamName: "id", ParamType: "int"},
+		},
+	}
+
+	code, structs, err := GeneratePrimQuery(q, s)
+	require.NoError(t, err)
+
+	// Should have result struct.
+	assert.Contains(t, structs, "type UpdateUserEmailResult struct")
+
+	// Should have method.
+	assert.Contains(t, code, "func (r *UserRepository) UpdateUserEmail(ctx context.Context, email string, id int)")
+	assert.Contains(t, code, "(*UpdateUserEmailResult, error)")
+
+	// Should have UPDATE SET with WHERE and RETURNING.
+	assert.Contains(t, code, `UPDATE "users" SET "email" = $1`)
+	assert.Contains(t, code, `WHERE "id" = $2`)
+	assert.Contains(t, code, "RETURNING")
+}
+
+func TestPrimQuery_SimpleDelete(t *testing.T) {
+	s := primTestSchema()
+	q := &PrimQuery{
+		Name:      "DeleteUser",
+		ModelName: "User",
+		Operation: QueryOpDelete,
+		Where: []WhereClause{
+			{Field: "id", Operator: "eq", ParamName: "id", ParamType: "int"},
+		},
+	}
+
+	code, structs, err := GeneratePrimQuery(q, s)
+	require.NoError(t, err)
+
+	// Delete should have no result struct.
+	assert.Empty(t, structs)
+
+	// Should return error only.
+	assert.Contains(t, code, "func (r *UserRepository) DeleteUser(ctx context.Context, id int) error")
+
+	// Should have DELETE FROM with WHERE.
+	assert.Contains(t, code, `DELETE FROM "users"`)
+	assert.Contains(t, code, `WHERE "id" = $1`)
+
+	// Should NOT have any Scan or result struct references.
+	assert.NotContains(t, code, "Scan")
+	assert.NotContains(t, code, "Result")
+}

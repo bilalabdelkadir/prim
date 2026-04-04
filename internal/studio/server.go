@@ -404,6 +404,12 @@ func mapOperation(op string) codegen.QueryOp {
 		return codegen.QueryOpFindMany
 	case "count":
 		return codegen.QueryOpCount
+	case "create":
+		return codegen.QueryOpCreate
+	case "update":
+		return codegen.QueryOpUpdate
+	case "delete":
+		return codegen.QueryOpDelete
 	default:
 		return codegen.QueryOp(op)
 	}
@@ -436,7 +442,20 @@ func toPrimQuery(req *PrimQueryRequest) *codegen.PrimQuery {
 		Limit:     req.Limit,
 		Skip:      req.Skip,
 		Include:   convertIncludes(req.Include),
+		Data:      convertDataFields(req.Data),
 	}
+}
+
+func convertDataFields(fields []DataFieldRequest) []codegen.DataField {
+	var result []codegen.DataField
+	for _, d := range fields {
+		result = append(result, codegen.DataField{
+			FieldName: d.FieldName,
+			ParamName: d.ParamName,
+			ParamType: d.ParamType,
+		})
+	}
+	return result
 }
 
 func convertIncludes(nodes []IncludeNodeRequest) []codegen.IncludeNode {
@@ -469,6 +488,7 @@ func convertIncludes(nodes []IncludeNodeRequest) []codegen.IncludeNode {
 			OrderBy:      orders,
 			Limit:        n.Limit,
 			Include:      convertIncludes(n.Include),
+			CreateData:   convertDataFields(n.CreateData),
 		})
 	}
 	return result

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import type { Model, Field, Relation, PrimQuery, IncludeNode, WhereCondition, OrderByDef } from '../types'
+import type { Model, Field, Relation, PrimQuery, IncludeNode, WhereCondition, OrderByDef, DataField } from '../types'
 import IncludeNodeEditor from './IncludeNodeEditor'
 import LiveCodePreview from './LiveCodePreview'
 
@@ -69,6 +69,7 @@ function QueryBuilder({ models }: QueryBuilderProps) {
     limit: null,
     skip: null,
     include: [],
+    data: [],
   })
 
   const [fields, setFields] = useState<Field[]>([])
@@ -176,6 +177,26 @@ function QueryBuilder({ models }: QueryBuilderProps) {
     setQuery(q => ({ ...q, orderBy: q.orderBy.filter(o => o.id !== id) }))
   }
 
+  // -- Data Fields (for create/update) --
+  const addDataField = () => {
+    const firstField = scalarFields[0]?.name ?? ''
+    const newDf: DataField = { id: genId(), fieldName: firstField, paramName: firstField, paramType: 'string' }
+    setQuery(q => ({ ...q, data: [...q.data, newDf] }))
+  }
+
+  const updateDataField = (id: string, patch: Partial<DataField>) => {
+    setQuery(q => ({
+      ...q,
+      data: q.data.map(d => (d.id === id ? { ...d, ...patch } : d)),
+    }))
+  }
+
+  const removeDataField = (id: string) => {
+    setQuery(q => ({ ...q, data: q.data.filter(d => d.id !== id) }))
+  }
+
+  const scalarFields = fields.filter(f => !f.type.match(/^[A-Z]/) || ['Int', 'String', 'Boolean', 'Float', 'DateTime'].includes(f.type))
+
   // -- Includes --
   const addInclude = (rel: Relation) => {
     const child: IncludeNode = {
@@ -210,18 +231,20 @@ function QueryBuilder({ models }: QueryBuilderProps) {
 
   // -- Save --
   const handleSave = () => {
+    const modelName = query.model.toLowerCase()
+    const outputPath = `generated/${modelName}_repository.go`
     setSaveLoading(true)
-    fetch('/api/query/save', {
+    fetch('/api/query/build/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(query),
+      body: JSON.stringify({ ...query, outputPath }),
     })
       .then(r => {
-        if (!r.ok) throw new Error('Save failed')
+        if (!r.ok) return r.text().then(t => { throw new Error(t) })
         return r.json()
       })
-      .then(() => setToast({ type: 'success', message: 'Query saved to file!' }))
-      .catch(() => setToast({ type: 'error', message: 'Failed to save query' }))
+      .then((data: { message?: string }) => setToast({ type: 'success', message: data.message ?? 'Query saved!' }))
+      .catch(err => setToast({ type: 'error', message: err.message || 'Failed to save' }))
       .finally(() => setSaveLoading(false))
   }
 
@@ -240,6 +263,11 @@ function QueryBuilder({ models }: QueryBuilderProps) {
 
   const whereSummary = query.where.length > 0 ? `${query.where.length} conditions` : 'none'
   const orderSummary = query.orderBy.length > 0 ? `${query.orderBy.length}` : 'none'
+  const dataSummary = query.data.length > 0 ? `${query.data.length} fields` : 'none'
+
+  const isRead = ['findOne', 'findMany', 'count'].includes(query.operation)
+  const isWrite = ['create', 'update'].includes(query.operation)
+  const isDelete = query.operation === 'delete'
 
   return (
     <div className="flex h-full">
@@ -265,17 +293,24 @@ function QueryBuilder({ models }: QueryBuilderProps) {
             ))}
           </select>
           <div className="flex bg-white/[0.02] rounded-sm border border-white/[0.06] overflow-hidden">
-            {(['findOne', 'findMany', 'count'] as const).map(op => (
+            {([
+              { key: 'findOne', label: 'One' },
+              { key: 'findMany', label: 'Many' },
+              { key: 'count', label: 'Count' },
+              { key: 'create', label: 'Create' },
+              { key: 'update', label: 'Update' },
+              { key: 'delete', label: 'Delete' },
+            ] as const).map(op => (
               <button
-                key={op}
-                onClick={() => setQuery(q => ({ ...q, operation: op }))}
-                className={`ui-text-label px-2.5 py-1.5 cursor-pointer transition-all duration-150 ${
-                  query.operation === op
-                    ? 'text-[#05df72] bg-[rgba(5,223,114,0.08)]'
+                key={op.key}
+                onClick={() => setQuery(q => ({ ...q, operation: op.key as PrimQuery['operation'] }))}
+                className={`ui-text-label px-2 py-1.5 cursor-pointer transition-all duration-150 ${
+                  query.operation === op.key
+                    ? op.key === 'delete' ? 'text-red-400 bg-red-400/10' : 'text-[#05df72] bg-[rgba(5,223,114,0.08)]'
                     : 'text-white/30 hover:text-white/60'
                 }`}
               >
-                {op === 'findOne' ? 'One' : op === 'findMany' ? 'Many' : 'Count'}
+                {op.label}
               </button>
             ))}
           </div>
@@ -296,8 +331,65 @@ function QueryBuilder({ models }: QueryBuilderProps) {
               <p className="ui-text-sm text-white/30 py-4">Loading fields...</p>
             ) : (
               <>
-                {/* Select Fields */}
-                <CollapsibleSection title="Select Fields" summary={selectSummary} defaultOpen>
+                {/* Data Fields — for create/update */}
+                {isWrite && (
+                  <CollapsibleSection title="Data Fields" summary={dataSummary} defaultOpen>
+                    {query.data.length === 0 ? (
+                      <p className="ui-text-xs text-white/20">No data fields. Add fields to set values.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {query.data.map(df => (
+                          <div key={df.id} className="flex gap-1.5 items-center">
+                            <select
+                              value={df.fieldName}
+                              onChange={e => {
+                                const name = e.target.value
+                                updateDataField(df.id, { fieldName: name, paramName: name })
+                              }}
+                              className={`${inputClass} w-32 cursor-pointer`}
+                            >
+                              {scalarFields.map(f => (
+                                <option key={f.name} value={f.name}>{f.name}</option>
+                              ))}
+                            </select>
+                            <input
+                              type="text"
+                              value={df.paramName}
+                              onChange={e => updateDataField(df.id, { paramName: e.target.value })}
+                              placeholder="paramName"
+                              className={`${inputClass} flex-1 min-w-0`}
+                            />
+                            <select
+                              value={df.paramType}
+                              onChange={e => updateDataField(df.id, { paramType: e.target.value })}
+                              className={`${inputClass} w-24 cursor-pointer`}
+                            >
+                              {PARAM_TYPES.map(pt => (
+                                <option key={pt} value={pt}>{pt}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => removeDataField(df.id)}
+                              className="text-white/20 hover:text-red-400 transition-all duration-150 cursor-pointer flex-shrink-0 ui-text-base"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={addDataField}
+                      className="ui-text-label text-white/20 hover:text-[#05df72] transition-all duration-150 cursor-pointer mt-1"
+                    >
+                      + Add Field
+                    </button>
+                  </CollapsibleSection>
+                )}
+
+                {/* Select Fields — for read operations */}
+                {(isRead || isWrite) && (
+                <CollapsibleSection title={isWrite ? "Returning Fields" : "Select Fields"} summary={selectSummary} defaultOpen={isRead}>
                   <div className="flex items-center justify-end mb-1">
                     <button
                       onClick={toggleAllFields}
@@ -324,9 +416,11 @@ function QueryBuilder({ models }: QueryBuilderProps) {
                     ))}
                   </div>
                 </CollapsibleSection>
+                )}
 
-                {/* Where Conditions */}
-                <CollapsibleSection title="Where" summary={whereSummary}>
+                {/* Where Conditions — for all except count */}
+                {!isDelete || query.where.length > 0 ? (
+                <CollapsibleSection title="Where" summary={whereSummary} defaultOpen={isDelete || isWrite}>
                   {query.where.length === 0 ? (
                     <p className="ui-text-xs text-white/20">No conditions. All records returned.</p>
                   ) : (
@@ -388,8 +482,10 @@ function QueryBuilder({ models }: QueryBuilderProps) {
                     + Add Condition
                   </button>
                 </CollapsibleSection>
+                ) : null}
 
-                {/* Order By + Limit (merged) */}
+                {/* Order By + Limit — only for read operations */}
+                {isRead && (
                 <CollapsibleSection title="Order / Limit" summary={orderSummary}>
                   {query.orderBy.length === 0 && (
                     <p className="ui-text-xs text-white/20">No ordering specified.</p>
@@ -454,8 +550,10 @@ function QueryBuilder({ models }: QueryBuilderProps) {
                     />
                   </div>
                 </CollapsibleSection>
+                )}
 
-                {/* Includes */}
+                {/* Includes — for read and create operations */}
+                {!isDelete && (
                 <div className="pt-2 space-y-2">
                   <span className="ui-text-label text-white/40">Includes</span>
 
@@ -505,6 +603,7 @@ function QueryBuilder({ models }: QueryBuilderProps) {
                     )}
                   </div>
                 </div>
+                )}
               </>
             )}
           </div>

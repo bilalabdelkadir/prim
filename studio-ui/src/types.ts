@@ -23,16 +23,24 @@ export interface Relation {
   is_array?: boolean;
 }
 
+export interface DataField {
+  id: string;
+  fieldName: string;
+  paramName: string;
+  paramType: string;
+}
+
 export interface PrimQuery {
   name: string;
   model: string;
-  operation: 'findOne' | 'findMany' | 'count';
+  operation: 'findOne' | 'findMany' | 'count' | 'create' | 'update' | 'delete';
   select: string[];
   where: WhereCondition[];
   orderBy: OrderByDef[];
   limit: number | null;
   skip: number | null;
   include: IncludeNode[];
+  data: DataField[];
 }
 
 export interface IncludeNode {
