@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', monospace;
+
+  --color-bg-base: #0a0a0a;
+  --color-bg-sidebar: #0a0a0a;
+  --color-bg-card: rgba(255, 255, 255, 0.03);
+  --color-bg-code: #050505;
+  --color-bg-input: rgba(255, 255, 255, 0.03);
+
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-focus: rgba(255, 255, 255, 0.4);
+
+  --color-text-primary: #ededed;
+  --color-text-secondary: rgba(255, 255, 255, 0.7);
+  --color-text-muted: rgba(255, 255, 255, 0.4);
+  --color-text-faint: rgba(255, 255, 255, 0.2);
+
+  --color-accent: #05df72;
+  --color-accent-hover: #00e87a;
+  --color-accent-muted: rgba(5, 223, 114, 0.15);
+
+  --color-success: #05df72;
+  --color-danger: #ef4444;
+}
+
+body {
+  background: #0a0a0a;
+  color: #ededed;
+  font-family: 'Geist', system-ui, -apple-system, sans-serif;
+  font-feature-settings: "rlig" 1, "calt" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  color: #000;
+  background-color: #fff;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
+
+/* Font size system — user-controllable via data attribute on html */
+html { --ui-scale: 1; }
+html[data-ui-size="compact"] { --ui-scale: 0.875; }
+html[data-ui-size="default"] { --ui-scale: 1; }
+html[data-ui-size="comfortable"] { --ui-scale: 1.125; }
+
+/* Apply scaling to key text sizes */
+.ui-text-xs { font-size: calc(10px * var(--ui-scale)); }
+.ui-text-sm { font-size: calc(11px * var(--ui-scale)); }
+.ui-text-base { font-size: calc(12px * var(--ui-scale)); }
+.ui-text-md { font-size: calc(13px * var(--ui-scale)); }
+.ui-text-lg { font-size: calc(14px * var(--ui-scale)); }
+.ui-text-label {
+  font-size: calc(9px * var(--ui-scale));
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* Smooth transition when changing size — scoped to avoid overriding component transitions */
+.ui-text-xs, .ui-text-sm, .ui-text-base, .ui-text-md, .ui-text-lg, .ui-text-label {
+  transition: font-size 0.15s ease;
+}
+
+/* Focus visible for keyboard users */
+:focus-visible {
+  outline: 1px solid rgba(5, 223, 114, 0.5);
+  outline-offset: 2px;
+}
