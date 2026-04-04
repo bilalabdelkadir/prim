@@ -111,7 +111,13 @@ func generateResultStruct(b *strings.Builder, prefix string, suffix string, mode
 			continue
 		}
 		childSuffix := suffix + goName(inc.RelationName)
-		generateResultStruct(b, prefix, childSuffix, childModel, inc.Select, inc.Include, s, inc.ForeignKey)
+		// For has-many (IsArray), the FK lives on the child side so include it.
+		// For belongs-to (!IsArray), the FK lives on the parent side; don't add it to child struct.
+		childFKField := ""
+		if inc.IsArray {
+			childFKField = inc.ForeignKey
+		}
+		generateResultStruct(b, prefix, childSuffix, childModel, inc.Select, inc.Include, s, childFKField)
 	}
 }
 
@@ -593,8 +599,22 @@ func buildPrimSelectCols(model *schema.Model, sel []string, includes []IncludeNo
 		cols = append(cols, f.Name)
 	}
 
-	// Ensure FK columns from includes referencing this model are included
-	// (for parent side, the reference key is usually "id" which is already included).
+	// For belongs-to includes (!IsArray), the FK lives on the parent side.
+	// Ensure those FK columns are included in the parent SELECT.
+	for _, inc := range includes {
+		if !inc.IsArray {
+			found := false
+			for _, c := range cols {
+				if c == inc.ForeignKey {
+					found = true
+					break
+				}
+			}
+			if !found {
+				cols = append(cols, inc.ForeignKey)
+			}
+		}
+	}
 
 	return cols
 }
@@ -778,8 +798,27 @@ func generateIncludeQueries(b *strings.Builder, includes []IncludeNode, s *schem
 		childStructName := prefix + childSuffix + "Result"
 		childTable := tableName(inc.ModelName)
 
+		// For has-many (IsArray): FK is on the child side.
+		//   Query: WHERE "fk" = ANY($1), collect parent IDs, match c.FK to parent ID.
+		// For belongs-to (!IsArray): FK is on the parent side.
+		//   Query: WHERE "referenceKey" = ANY($1), collect parent FK values, match c.ReferenceKey to parent FK.
+		var childWhereCol string   // column used in WHERE ... = ANY($1)
+		var childMatchField string // Go field on child used to match back to parent
+		if inc.IsArray {
+			childWhereCol = inc.ForeignKey
+			childMatchField = goName(inc.ForeignKey)
+		} else {
+			childWhereCol = inc.ReferenceKey
+			childMatchField = goName(inc.ReferenceKey)
+		}
+
 		// Build child select columns.
-		childCols := buildChildSelectCols(childModel, inc.Select, inc.ForeignKey)
+		// For has-many, FK must be in child columns. For belongs-to, FK is not on child.
+		childFKForSelect := ""
+		if inc.IsArray {
+			childFKForSelect = inc.ForeignKey
+		}
+		childCols := buildChildSelectCols(childModel, inc.Select, childFKForSelect)
 
 		var sqlColParts []string
 		for _, c := range childCols {
@@ -792,21 +831,50 @@ func generateIncludeQueries(b *strings.Builder, includes []IncludeNode, s *schem
 		idCollectVar := strings.ToLower(inc.RelationName) + "IDs"
 		childMapVar := strings.ToLower(inc.RelationName) + "Map"
 
-		// Collect parent IDs.
-		b.WriteString("\t")
-		b.WriteString(idCollectVar)
-		b.WriteString(" := make([]int, 0, len(")
-		b.WriteString(parentIDsVar)
-		b.WriteString("))\n")
-		b.WriteString("\tfor k := range ")
-		b.WriteString(parentIDsVar)
-		b.WriteString(" {\n")
-		b.WriteString("\t\t")
-		b.WriteString(idCollectVar)
-		b.WriteString(" = append(")
-		b.WriteString(idCollectVar)
-		b.WriteString(", k)\n")
-		b.WriteString("\t}\n")
+		if inc.IsArray {
+			// has-many: collect parent IDs (the map keys are parent IDs).
+			b.WriteString("\t")
+			b.WriteString(idCollectVar)
+			b.WriteString(" := make([]int, 0, len(")
+			b.WriteString(parentIDsVar)
+			b.WriteString("))\n")
+			b.WriteString("\tfor k := range ")
+			b.WriteString(parentIDsVar)
+			b.WriteString(" {\n")
+			b.WriteString("\t\t")
+			b.WriteString(idCollectVar)
+			b.WriteString(" = append(")
+			b.WriteString(idCollectVar)
+			b.WriteString(", k)\n")
+			b.WriteString("\t}\n")
+		} else {
+			// belongs-to: collect parent FK values from the parent results.
+			// We also need a map from parent FK value -> parent index for attaching.
+			b.WriteString("\t")
+			b.WriteString(idCollectVar)
+			b.WriteString(" := make([]int, 0, len(")
+			b.WriteString(parentResultsVar)
+			b.WriteString("))\n")
+			b.WriteString("\t")
+			b.WriteString(idCollectVar)
+			b.WriteString("Map := make(map[int]int)\n")
+			b.WriteString("\tfor i, p := range ")
+			b.WriteString(parentResultsVar)
+			b.WriteString(" {\n")
+			b.WriteString("\t\t")
+			b.WriteString(idCollectVar)
+			b.WriteString(" = append(")
+			b.WriteString(idCollectVar)
+			b.WriteString(", p.")
+			b.WriteString(goName(inc.ForeignKey))
+			b.WriteString(")\n")
+			b.WriteString("\t\t")
+			b.WriteString(idCollectVar)
+			b.WriteString("Map[p.")
+			b.WriteString(goName(inc.ForeignKey))
+			b.WriteString("] = i\n")
+			b.WriteString("\t}\n")
+		}
 
 		// Build child query.
 		b.WriteString("\t")
@@ -817,7 +885,7 @@ func generateIncludeQueries(b *strings.Builder, includes []IncludeNode, s *schem
 		b.WriteString(" FROM \"")
 		b.WriteString(childTable)
 		b.WriteString("\" WHERE \"")
-		b.WriteString(inc.ForeignKey)
+		b.WriteString(childWhereCol)
 		b.WriteString("\" = ANY($1)")
 
 		// Additional WHERE conditions on the child.
@@ -888,13 +956,14 @@ func generateIncludeQueries(b *strings.Builder, includes []IncludeNode, s *schem
 		b.WriteString("\t\t}\n")
 
 		// Attach to parent.
-		b.WriteString("\t\tif idx, ok := ")
-		b.WriteString(parentIDsVar)
-		b.WriteString("[c.")
-		b.WriteString(goName(inc.ForeignKey))
-		b.WriteString("]; ok {\n")
-
+		// For has-many: match c.FK to parentIDsVar (map of parent ID -> index).
+		// For belongs-to: match c.ReferenceKey to the FK-based map we built above.
 		if inc.IsArray {
+			b.WriteString("\t\tif idx, ok := ")
+			b.WriteString(parentIDsVar)
+			b.WriteString("[c.")
+			b.WriteString(childMatchField)
+			b.WriteString("]; ok {\n")
 			b.WriteString("\t\t\t")
 			b.WriteString(parentResultsVar)
 			b.WriteString("[idx].")
@@ -905,7 +974,11 @@ func generateIncludeQueries(b *strings.Builder, includes []IncludeNode, s *schem
 			b.WriteString(goName(inc.RelationName))
 			b.WriteString(", c)\n")
 		} else {
-			// Remove the * — for non-array we use pointer, just assign.
+			b.WriteString("\t\tif idx, ok := ")
+			b.WriteString(idCollectVar)
+			b.WriteString("Map[c.")
+			b.WriteString(childMatchField)
+			b.WriteString("]; ok {\n")
 			b.WriteString("\t\t\t")
 			b.WriteString(parentResultsVar)
 			b.WriteString("[idx].")

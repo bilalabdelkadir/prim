@@ -380,6 +380,125 @@ func TestPrimQuery_SelectFieldsOnInclude(t *testing.T) {
 	assert.NotContains(t, childStruct, "Published")
 }
 
+func TestPrimQuery_BelongsToInclude(t *testing.T) {
+	// Schema: Inventory belongs to Product via productId on Inventory.
+	s := &schema.Schema{
+		Models: []*schema.Model{
+			{
+				Name: "Inventory",
+				Fields: []*schema.Field{
+					{Name: "id", Type: schema.FieldTypeInt, Attributes: []*schema.Attribute{{Name: "id"}}},
+					{Name: "quantity", Type: schema.FieldTypeInt},
+					{Name: "productId", Type: schema.FieldTypeInt},
+					{Name: "product", Type: "Product"},
+				},
+			},
+			{
+				Name: "Product",
+				Fields: []*schema.Field{
+					{Name: "id", Type: schema.FieldTypeInt, Attributes: []*schema.Attribute{{Name: "id"}}},
+					{Name: "name", Type: schema.FieldTypeString},
+					{Name: "price", Type: schema.FieldTypeFloat},
+				},
+			},
+		},
+	}
+
+	q := &PrimQuery{
+		Name:      "FindInventorySalesProduct",
+		ModelName: "Inventory",
+		Operation: QueryOpFindMany,
+		Include: []IncludeNode{
+			{
+				RelationName: "product",
+				ModelName:    "Product",
+				IsArray:      false, // belongs-to
+				ForeignKey:   "productId",
+				ReferenceKey: "id",
+			},
+		},
+	}
+
+	code, structs, err := GeneratePrimQuery(q, s)
+	require.NoError(t, err)
+
+	// Parent struct should have ProductId (FK is on parent side).
+	assert.Contains(t, structs, "ProductId int")
+
+	// Parent struct should have pointer field for belongs-to.
+	assert.Contains(t, structs, "Product *FindInventorySalesProductProductResult")
+
+	// Child (Product) struct should NOT have ProductId — FK is not on product.
+	childStructStart := strings.Index(structs, "FindInventorySalesProductProductResult struct")
+	require.NotEqual(t, -1, childStructStart, "child struct should exist")
+	childStructEnd := strings.Index(structs[childStructStart:], "}\n")
+	childStruct := structs[childStructStart : childStructStart+childStructEnd]
+	assert.NotContains(t, childStruct, "ProductId")
+
+	// Child query should use reference key (id), not FK (productId).
+	assert.Contains(t, code, `FROM "products" WHERE "id" = ANY($1)`)
+	assert.NotContains(t, code, `WHERE "productId" = ANY($1)`)
+
+	// Should collect parent FK values (productId), not parent IDs.
+	assert.Contains(t, code, "p.ProductId")
+
+	// Should match child by reference key (Id), not FK.
+	assert.Contains(t, code, "[c.Id]")
+}
+
+func TestPrimQuery_BelongsToSelectFields(t *testing.T) {
+	// Verify that belongs-to with Select still works: FK is not added to child.
+	s := &schema.Schema{
+		Models: []*schema.Model{
+			{
+				Name: "Inventory",
+				Fields: []*schema.Field{
+					{Name: "id", Type: schema.FieldTypeInt, Attributes: []*schema.Attribute{{Name: "id"}}},
+					{Name: "quantity", Type: schema.FieldTypeInt},
+					{Name: "productId", Type: schema.FieldTypeInt},
+					{Name: "product", Type: "Product"},
+				},
+			},
+			{
+				Name: "Product",
+				Fields: []*schema.Field{
+					{Name: "id", Type: schema.FieldTypeInt, Attributes: []*schema.Attribute{{Name: "id"}}},
+					{Name: "name", Type: schema.FieldTypeString},
+					{Name: "price", Type: schema.FieldTypeFloat},
+				},
+			},
+		},
+	}
+
+	q := &PrimQuery{
+		Name:      "FindInventoryWithProductName",
+		ModelName: "Inventory",
+		Operation: QueryOpFindMany,
+		Include: []IncludeNode{
+			{
+				RelationName: "product",
+				ModelName:    "Product",
+				IsArray:      false,
+				ForeignKey:   "productId",
+				ReferenceKey: "id",
+				Select:       []string{"name"},
+			},
+		},
+	}
+
+	_, structs, err := GeneratePrimQuery(q, s)
+	require.NoError(t, err)
+
+	// Child struct should have Id (always) and Name (selected), but NOT ProductId.
+	childStructStart := strings.Index(structs, "FindInventoryWithProductNameProductResult struct")
+	require.NotEqual(t, -1, childStructStart)
+	childStructEnd := strings.Index(structs[childStructStart:], "}\n")
+	childStruct := structs[childStructStart : childStructStart+childStructEnd]
+	assert.Contains(t, childStruct, "Id int")
+	assert.Contains(t, childStruct, "Name string")
+	assert.NotContains(t, childStruct, "ProductId")
+}
+
 func TestPrimQuery_SimpleCreate(t *testing.T) {
 	s := primTestSchema()
 	q := &PrimQuery{
