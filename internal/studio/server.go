@@ -35,6 +35,12 @@ func NewServer(db *sql.DB, s *schema.Schema) *Server {
 	srv.mux.HandleFunc("GET /api/models/{name}/relations", srv.handleModelRelations)
 	srv.mux.HandleFunc("POST /api/query/build", srv.handleQueryBuild)
 	srv.mux.HandleFunc("POST /api/query/build/save", srv.handleQueryBuildSave)
+
+	// Serve embedded studio UI for non-API routes.
+	if ui := StaticHandler(); ui != nil {
+		srv.mux.Handle("GET /", ui)
+	}
+
 	return srv
 }
 

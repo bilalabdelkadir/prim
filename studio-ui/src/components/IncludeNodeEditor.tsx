@@ -141,7 +141,7 @@ function IncludeNodeEditor({ node, depth, onUpdate, onRemove }: IncludeNodeEdito
 
   return (
     <div
-      className="border border-white/[0.06] rounded-sm bg-white/[0.015] overflow-hidden"
+      className="border border-white/[0.06] rounded-sm bg-white/[0.015]"
       style={{ borderLeftWidth: '1.5px', borderLeftColor: borderColor }}
     >
       {/* Header — single compact line */}
@@ -354,16 +354,26 @@ function IncludeNodeEditor({ node, depth, onUpdate, onRemove }: IncludeNodeEdito
           )}
 
           {/* Add Include */}
-          <div className="relative">
-            <button
-              onClick={() => setShowRelationPicker(!showRelationPicker)}
-              disabled={relations.length === 0}
-              className="ui-text-label text-white/20 hover:text-[#05df72] transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              + Include
-            </button>
-            {showRelationPicker && relations.length > 0 && (
-              <div className="absolute z-10 mt-1 left-0 bg-[#111] border border-white/10 rounded-sm shadow-xl py-1 min-w-[180px]">
+          <div>
+            {!showRelationPicker ? (
+              <button
+                onClick={() => setShowRelationPicker(true)}
+                disabled={relations.length === 0}
+                className="ui-text-label text-white/20 hover:text-[#05df72] transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                + Include
+              </button>
+            ) : (
+              <div className="bg-[#111] border border-white/10 rounded-sm py-1 mt-1">
+                <div className="flex items-center justify-between px-3 py-1 border-b border-white/[0.06] mb-1">
+                  <span className="ui-text-label text-white/30">Select relation</span>
+                  <button
+                    onClick={() => setShowRelationPicker(false)}
+                    className="ui-text-label text-white/20 hover:text-white/50 cursor-pointer transition-colors"
+                  >
+                    &times;
+                  </button>
+                </div>
                 {relations
                   .filter(r => !node.include.some(inc => inc.relationName === r.name))
                   .map(rel => (

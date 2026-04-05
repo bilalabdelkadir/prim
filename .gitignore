@@ -18,6 +18,7 @@ vendor/
 # Studio frontend
 studio-ui/node_modules/
 studio-ui/dist/
+internal/studio/dist/
 
 # IDE
 .idea/
@@ -33,3 +34,6 @@ Thumbs.db
 # Environment
 .env
 .env.*
+
+# Test projects
+test-inventory/

@@ -50,7 +50,7 @@ function tokenizeLine(line: string, inBlockComment: boolean): { tokens: Token[];
   }
 
   while (i < line.length) {
-    const ch = line[i]
+    const ch = line[i] as string
     const rest = line.slice(i)
 
     // Line comment
@@ -133,7 +133,7 @@ function tokenizeLine(line: string, inBlockComment: boolean): { tokens: Token[];
     // Numbers
     if (ch >= '0' && ch <= '9') {
       let j = i
-      while (j < line.length && ((line[j] >= '0' && line[j] <= '9') || line[j] === '.')) j++
+      while (j < line.length && ((line[j]! >= '0' && line[j]! <= '9') || line[j] === '.')) j++
       tokens.push({ type: 'number', value: line.slice(i, j) })
       i = j
       continue
@@ -142,7 +142,7 @@ function tokenizeLine(line: string, inBlockComment: boolean): { tokens: Token[];
     // Words (identifiers/keywords)
     if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_') {
       let j = i
-      while (j < line.length && ((line[j] >= 'a' && line[j] <= 'z') || (line[j] >= 'A' && line[j] <= 'Z') || (line[j] >= '0' && line[j] <= '9') || line[j] === '_')) j++
+      while (j < line.length && ((line[j]! >= 'a' && line[j]! <= 'z') || (line[j]! >= 'A' && line[j]! <= 'Z') || (line[j]! >= '0' && line[j]! <= '9') || line[j] === '_')) j++
       const word = line.slice(i, j)
 
       if (KEYWORDS.has(word)) {
@@ -154,13 +154,12 @@ function tokenizeLine(line: string, inBlockComment: boolean): { tokens: Token[];
         let k = j
         while (k < line.length && line[k] === ' ') k++
         if (k < line.length && line[k] === '(') {
-          // Check if PascalCase → likely type/constructor, else funcName
-          if (word[0] >= 'A' && word[0] <= 'Z' && !word.includes('_')) {
+          if (word[0]! >= 'A' && word[0]! <= 'Z' && !word.includes('_')) {
             tokens.push({ type: 'type', value: word })
           } else {
             tokens.push({ type: 'funcName', value: word })
           }
-        } else if (word[0] >= 'A' && word[0] <= 'Z') {
+        } else if (word[0]! >= 'A' && word[0]! <= 'Z') {
           // PascalCase without ( — likely a type name
           tokens.push({ type: 'type', value: word })
         } else {
@@ -172,7 +171,7 @@ function tokenizeLine(line: string, inBlockComment: boolean): { tokens: Token[];
     }
 
     // Anything else
-    tokens.push({ type: 'default', value: ch })
+    tokens.push({ type: 'default', value: ch as string })
     i++
   }
 
