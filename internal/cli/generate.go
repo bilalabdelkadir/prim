@@ -14,9 +14,9 @@ import (
 // RunGenerate reads the schema file, parses it, and writes generated Go files
 // to the output directory.
 func RunGenerate(schemaPath, outDir string) error {
-	data, err := os.ReadFile(schemaPath)
+	data, err := readSchema(schemaPath)
 	if err != nil {
-		return fmt.Errorf("reading schema: %w", err)
+		return err
 	}
 
 	s, err := parser.Parse(string(data))

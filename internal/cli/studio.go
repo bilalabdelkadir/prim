@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/bilalabdelkadir/prim/internal/db"
 	"github.com/bilalabdelkadir/prim/internal/parser"
@@ -12,9 +11,9 @@ import (
 // RunStudio starts the studio web server. If databaseURL is provided, a live
 // database connection is established. Otherwise studio runs in schema-only mode.
 func RunStudio(schemaPath string, port int, databaseURL string) error {
-	data, err := os.ReadFile(schemaPath)
+	data, err := readSchema(schemaPath)
 	if err != nil {
-		return fmt.Errorf("reading schema: %w", err)
+		return err
 	}
 
 	s, err := parser.Parse(string(data))
@@ -34,7 +33,7 @@ func RunStudio(schemaPath string, port int, databaseURL string) error {
 
 		conn, err := db.Connect(databaseURL)
 		if err != nil {
-			return fmt.Errorf("connecting to database: %w", err)
+			return wrapConnError("connecting to database", err)
 		}
 		defer conn.Close()
 

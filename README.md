@@ -14,12 +14,16 @@ Key design decisions:
 
 ## Features
 
+- `prim init` to scaffold a new project with schema, `.env`, and `.gitignore`
 - Schema language with Prisma-compatible syntax for defining models and relations
-- Auto-generate Go structs and repository files with `FindByID`, `Create`, `Update`, and `Delete` methods
-- Migration engine that diffs your schema against the database and generates SQL migration files
+- `prim generate` to auto-generate Go structs and repository files with `FindByID`, `Create`, `Update`, and `Delete` methods
+- `prim migrate` to diff your schema, generate SQL migration files, and apply them
+- `prim validate` to check your schema for errors without generating anything
+- `prim studio` for a visual query builder with nested includes, live code preview, and save to file
 - Auto-creates the target database if it does not exist
-- Visual query builder (prim studio) for constructing complex queries with nested includes
+- Helpful error messages with actionable hints for common issues (SSL, auth, connection)
 - Generated code uses only `database/sql` with no external dependencies
+- `prim --version` to check your installed version
 
 ## Installation
 
@@ -36,9 +40,26 @@ source ~/.zshrc
 
 ## Quick Start
 
-### 1. Create a schema file
+### 1. Initialize a project
 
-Create a file called `schema.prisma` in your project root:
+```bash
+mkdir myproject && cd myproject
+go mod init myproject
+prim init
+```
+
+This creates three files:
+- `schema.prisma` with a starter User model
+- `.env` with a placeholder `DATABASE_URL`
+- `.gitignore` for generated files and secrets
+
+Edit `.env` with your actual database URL:
+
+```
+DATABASE_URL=postgresql://user:password@localhost:5432/mydb?sslmode=disable
+```
+
+Then edit `schema.prisma` with your models:
 
 ```prisma
 datasource db {
@@ -62,6 +83,13 @@ model Post {
   authorId  Int
   author    User    @relation(fields: [authorId], references: [id])
 }
+```
+
+You can validate your schema at any time:
+
+```bash
+prim validate
+# schema is valid: 2 models found
 ```
 
 ### 2. Generate Go code
@@ -284,6 +312,16 @@ The `productId` field stores the foreign key. The `product` field defines the re
 
 ## CLI Reference
 
+### `prim init`
+
+Scaffolds a new prim project in the current directory.
+
+```
+prim init
+```
+
+Creates `schema.prisma`, `.env`, and `.gitignore`. Will not overwrite if `schema.prisma` already exists.
+
 ### `prim generate`
 
 Parses a schema file and generates Go model and repository files.
@@ -307,15 +345,33 @@ prim migrate [flags]
 
 If `-db` is not provided, prim falls back to the `DATABASE_URL` environment variable.
 
+### `prim validate`
+
+Checks a schema file for syntax errors without generating code or connecting to a database.
+
+```
+prim validate [flags]
+  -schema string   Path to schema file (default "schema.prisma")
+```
+
 ### `prim studio`
 
-Launches the visual query builder.
+Launches the visual query builder. The studio UI is embedded in the binary.
 
 ```
 prim studio [flags]
   -schema string   Path to schema file (default "schema.prisma")
   -port int        Studio port (default 4983)
   -db string       Database URL (overrides schema datasource and DATABASE_URL env)
+```
+
+### `prim --version`
+
+Prints the installed version.
+
+```
+prim --version
+# prim v0.1.0
 ```
 
 ## Prim Studio
@@ -333,25 +389,33 @@ Prim Studio is a web-based visual query builder that runs locally. It lets you c
 
 ### Running Studio
 
-The studio UI is not yet packaged with the Go binary. For now, you need to run the backend and the React frontend separately.
-
-Terminal 1 (backend):
+The studio UI is embedded in the prim binary. One command starts everything:
 
 ```bash
 prim studio -schema schema.prisma -db "postgresql://user:pass@localhost:5432/mydb?sslmode=disable"
 ```
 
-Terminal 2 (frontend):
+Then open `http://localhost:4983` in your browser.
 
+The `-db` flag is optional. Without it, studio runs in schema-only mode: you can browse models, build queries, and preview generated code, but Raw SQL will not work.
+
+### Development Mode
+
+If you are contributing to prim and want to work on the studio frontend with hot reloading:
+
+Terminal 1 (Go backend):
 ```bash
-cd /path/to/prim/studio-ui
+prim studio -schema schema.prisma -db "postgresql://..."
+```
+
+Terminal 2 (React dev server with hot reload):
+```bash
+cd studio-ui
 npm install  # first time only
 npm run dev
 ```
 
-Then open `http://localhost:5173` in your browser.
-
-In a future release, the studio UI will be embedded in the Go binary using `embed.FS`, so only a single command will be needed.
+Then open `http://localhost:5173` instead. The Vite dev server proxies API calls to the Go backend.
 
 ## Generated Code
 
@@ -452,14 +516,18 @@ myproject/
 
 ## Roadmap
 
+- [x] ~~Embed studio UI in the Go binary~~ (done)
+- [x] ~~`prim init` to scaffold new projects~~ (done)
+- [x] ~~`prim validate` to check schema~~ (done)
+- [x] ~~Helpful error messages with hints~~ (done)
 - [ ] Database introspection (currently treats DB as empty on each migrate)
 - [ ] `CREATE TABLE IF NOT EXISTS` in migrations
-- [ ] Embed studio UI in the Go binary (no separate React dev server)
 - [ ] MySQL / SQLite support
 - [ ] Enum types in schema
 - [ ] Index definitions
 - [ ] Seed data command
 - [ ] `prim db push` (apply schema directly without migration files)
+- [ ] Configurable package name for generated code
 
 ## License
 

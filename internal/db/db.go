@@ -10,16 +10,35 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// wrapConnErr inspects a database error and returns a wrapped version with a
+// user-friendly hint when the root cause matches a known pattern.
+func wrapConnErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "SSL is not enabled"):
+		return fmt.Errorf("error: SSL is not enabled on the server\nhint: add ?sslmode=disable to your database URL\noriginal: %w", err)
+	case strings.Contains(msg, "connection refused"):
+		return fmt.Errorf("error: could not connect to database\nhint: check that PostgreSQL is running and the host/port in your database URL are correct\noriginal: %w", err)
+	case strings.Contains(msg, "password authentication failed"):
+		return fmt.Errorf("error: authentication failed\nhint: check the username and password in your database URL\noriginal: %w", err)
+	default:
+		return err
+	}
+}
+
 // Connect opens a connection to the database at the given URL and pings it.
 func Connect(databaseURL string) (*sql.DB, error) {
 	fmt.Println("connecting to database...")
 	conn, err := sql.Open("postgres", withTimeout(databaseURL))
 	if err != nil {
-		return nil, fmt.Errorf("opening database: %w", err)
+		return nil, wrapConnErr(fmt.Errorf("opening database: %w", err))
 	}
 	if err := conn.Ping(); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("pinging database: %w", err)
+		return nil, wrapConnErr(fmt.Errorf("pinging database: %w", err))
 	}
 	fmt.Println("connected to database")
 	return conn, nil
@@ -39,7 +58,7 @@ func EnsureDatabase(databaseURL string) error {
 
 	conn, err := sql.Open("postgres", withTimeout(maintenanceURL))
 	if err != nil {
-		return fmt.Errorf("connecting to maintenance db: %w", err)
+		return wrapConnErr(fmt.Errorf("connecting to maintenance db: %w", err))
 	}
 	defer conn.Close()
 
@@ -50,14 +69,14 @@ func EnsureDatabase(databaseURL string) error {
 		return nil
 	}
 	if err != sql.ErrNoRows {
-		return fmt.Errorf("checking database existence: %w", err)
+		return wrapConnErr(fmt.Errorf("checking database existence: %w", err))
 	}
 
 	// Database does not exist — create it.
 	// Use quoted identifier to handle special characters in the name.
 	_, err = conn.Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, strings.ReplaceAll(dbname, `"`, `""`)))
 	if err != nil {
-		return fmt.Errorf("creating database: %w", err)
+		return wrapConnErr(fmt.Errorf("creating database: %w", err))
 	}
 
 	fmt.Printf("created database %q\n", dbname)

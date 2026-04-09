@@ -22,6 +22,46 @@ const (
 	TOKEN_COMMA
 )
 
+// String returns a human-readable name for the token type.
+func (t TokenType) String() string {
+	switch t {
+	case TOKEN_EOF:
+		return "end of file"
+	case TOKEN_MODEL:
+		return "model"
+	case TOKEN_DATASOURCE:
+		return "datasource"
+	case TOKEN_ENUM:
+		return "enum"
+	case TOKEN_IDENT:
+		return "identifier"
+	case TOKEN_AT:
+		return "@"
+	case TOKEN_LBRACE:
+		return "{"
+	case TOKEN_RBRACE:
+		return "}"
+	case TOKEN_QUESTION:
+		return "?"
+	case TOKEN_BRACKETL:
+		return "["
+	case TOKEN_BRACKETR:
+		return "]"
+	case TOKEN_EQUALS:
+		return "="
+	case TOKEN_STRING:
+		return "string"
+	case TOKEN_LPAREN:
+		return "("
+	case TOKEN_RPAREN:
+		return ")"
+	case TOKEN_COMMA:
+		return ","
+	default:
+		return "unknown"
+	}
+}
+
 // Token is a single lexical unit produced by the Lexer.
 type Token struct {
 	Type  TokenType

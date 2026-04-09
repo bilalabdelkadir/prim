@@ -8,19 +8,62 @@ import (
 	"github.com/bilalabdelkadir/prim/internal/cli"
 )
 
-const defaultSchema = "schema.prisma"
+const (
+	defaultSchema = "schema.prisma"
+	version       = "v0.1.0"
+)
+
+const helpText = `prim — prisma-like codegen for Go
+
+Usage:
+  prim <command> [flags]
+
+Commands:
+  init        Scaffold a new prim project
+  generate    Generate Go code from schema
+  migrate     Create and apply database migrations
+  studio      Open the visual query builder
+  validate    Check schema for errors
+
+Flags:
+  --version   Print version
+
+Run 'prim <command> -h' for command-specific help.`
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: prim <command> [flags]")
-		fmt.Println("commands: generate, migrate, studio")
-		os.Exit(1)
+		fmt.Println(helpText)
+		os.Exit(0)
 	}
 
 	cmd := os.Args[1]
 	args := os.Args[2:]
 
 	switch cmd {
+	case "help", "-h", "--help":
+		fmt.Println(helpText)
+		os.Exit(0)
+
+	case "--version", "-version":
+		fmt.Printf("prim %s\n", version)
+		os.Exit(0)
+
+	case "init":
+		if err := cli.RunInit(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "validate":
+		fs := flag.NewFlagSet("validate", flag.ExitOnError)
+		schema := fs.String("schema", defaultSchema, "path to schema file")
+		fs.Parse(args)
+
+		if err := cli.RunValidate(*schema); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "generate":
 		fs := flag.NewFlagSet("generate", flag.ExitOnError)
 		schema := fs.String("schema", defaultSchema, "path to schema file")
@@ -67,7 +110,7 @@ func main() {
 		}
 
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s\n", cmd, helpText)
 		os.Exit(1)
 	}
 }

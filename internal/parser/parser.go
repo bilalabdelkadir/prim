@@ -39,8 +39,8 @@ func (p *Parser) next() Token {
 func (p *Parser) expect(tt TokenType) (Token, error) {
 	t := p.next()
 	if t.Type != tt {
-		return t, fmt.Errorf("line %d col %d: expected token type %d, got %d (%q)",
-			t.Line, t.Col, tt, t.Type, t.Value)
+		return t, fmt.Errorf("line %d: expected %s, got %s %q",
+			t.Line, tt, t.Type, t.Value)
 	}
 	return t, nil
 }
@@ -79,12 +79,16 @@ func (p *Parser) parseDatasource() (*schema.Datasource, error) {
 		return nil, err
 	}
 	// datasource name (e.g. "db") — consume and discard.
-	if _, err := p.expect(TOKEN_IDENT); err != nil {
-		return nil, err
+	if t := p.peek(); t.Type != TOKEN_IDENT {
+		return nil, fmt.Errorf("line %d: expected datasource name after \"datasource\" keyword, got %s %q",
+			t.Line, t.Type, t.Value)
 	}
-	if _, err := p.expect(TOKEN_LBRACE); err != nil {
-		return nil, err
+	p.next()
+	if t := p.peek(); t.Type != TOKEN_LBRACE {
+		return nil, fmt.Errorf("line %d: expected \"{\" to start datasource body, got %s %q",
+			t.Line, t.Type, t.Value)
 	}
+	p.next()
 
 	ds := &schema.Datasource{}
 
@@ -144,14 +148,17 @@ func (p *Parser) parseModel() (*schema.Model, error) {
 	if _, err := p.expect(TOKEN_MODEL); err != nil {
 		return nil, err
 	}
-	nameTok, err := p.expect(TOKEN_IDENT)
-	if err != nil {
-		return nil, err
+	if t := p.peek(); t.Type != TOKEN_IDENT {
+		return nil, fmt.Errorf("line %d: expected model name after \"model\" keyword, got %s %q",
+			t.Line, t.Type, t.Value)
 	}
+	nameTok := p.next()
 
-	if _, err := p.expect(TOKEN_LBRACE); err != nil {
-		return nil, err
+	if t := p.peek(); t.Type != TOKEN_LBRACE {
+		return nil, fmt.Errorf("line %d: expected \"{\" to start model body, got %s %q",
+			t.Line, t.Type, t.Value)
 	}
+	p.next()
 
 	m := &schema.Model{
 		Name:   nameTok.Value,
@@ -178,10 +185,11 @@ func (p *Parser) parseField() (*schema.Field, error) {
 	if err != nil {
 		return nil, err
 	}
-	typeTok, err := p.expect(TOKEN_IDENT)
-	if err != nil {
-		return nil, err
+	if t := p.peek(); t.Type != TOKEN_IDENT {
+		return nil, fmt.Errorf("line %d: expected field type after field name %q, got %s %q",
+			t.Line, nameTok.Value, t.Type, t.Value)
 	}
+	typeTok := p.next()
 
 	f := &schema.Field{
 		Name:       nameTok.Value,
