@@ -44,6 +44,12 @@ func validateIncludes(includes []IncludeNode, s *schema.Schema) error {
 		if findModel(s, inc.ModelName) == nil {
 			return fmt.Errorf("codegen: included model %q not found in schema", inc.ModelName)
 		}
+		if inc.ForeignKey == "" {
+			return fmt.Errorf("codegen: include %q is missing foreignKey — check that the relation has @relation(fields: [...], references: [...]) defined", inc.RelationName)
+		}
+		if inc.ReferenceKey == "" {
+			return fmt.Errorf("codegen: include %q is missing referenceKey — check that the relation has @relation(fields: [...], references: [...]) defined", inc.RelationName)
+		}
 		if err := validateIncludes(inc.Include, s); err != nil {
 			return err
 		}

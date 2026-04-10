@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/bilalabdelkadir/prim/internal/cli"
+	"github.com/bilalabdelkadir/prim/internal/db"
 )
 
 const (
@@ -31,6 +32,9 @@ Flags:
 Run 'prim <command> -h' for command-specific help.`
 
 func main() {
+	// Load .env file if present (OS env vars take precedence).
+	db.LoadDotEnv(".env")
+
 	if len(os.Args) < 2 {
 		fmt.Println(helpText)
 		os.Exit(0)

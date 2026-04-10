@@ -1,18 +1,5 @@
 package studio
 
-// QueryRequest is the JSON request body for query builder endpoints.
-type QueryRequest struct {
-	Name       string        `json:"name"`
-	ModelName  string        `json:"modelName"`
-	Operation  string        `json:"operation"`
-	Fields     []string      `json:"fields"`
-	Where      []WhereClause `json:"where"`
-	OrderBy    []OrderClause `json:"orderBy"`
-	Limit      int           `json:"limit"`
-	Joins      []JoinClause  `json:"joins"`
-	OutputPath string        `json:"outputPath,omitempty"`
-}
-
 // WhereClause represents a single WHERE condition in a query definition.
 type WhereClause struct {
 	Field     string `json:"field"`
@@ -25,15 +12,6 @@ type WhereClause struct {
 type OrderClause struct {
 	Field     string `json:"field"`
 	Direction string `json:"direction"`
-}
-
-// JoinClause represents a JOIN in a query definition.
-type JoinClause struct {
-	ModelName    string   `json:"modelName"`
-	Fields       []string `json:"fields"`
-	ForeignKey   string   `json:"foreignKey"`
-	ReferenceKey string   `json:"referenceKey"`
-	Type         string   `json:"type"`
 }
 
 // FieldInfo describes a single model field for the UI field picker.

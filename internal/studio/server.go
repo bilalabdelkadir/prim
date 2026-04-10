@@ -28,9 +28,7 @@ func NewServer(db *sql.DB, s *schema.Schema) *Server {
 	srv.mux.HandleFunc("GET /api/schema", srv.handleSchema)
 	srv.mux.HandleFunc("GET /api/tables", srv.handleTables)
 	srv.mux.HandleFunc("GET /api/tables/{name}", srv.handleTableByName)
-	srv.mux.HandleFunc("POST /api/query", srv.handleQuery)
-	srv.mux.HandleFunc("POST /api/query/preview", srv.handleQueryPreview)
-	srv.mux.HandleFunc("POST /api/query/save", srv.handleQuerySave)
+	srv.mux.HandleFunc("POST /api/sql/run", srv.handleQuery)
 	srv.mux.HandleFunc("GET /api/models/{name}/fields", srv.handleModelFields)
 	srv.mux.HandleFunc("GET /api/models/{name}/relations", srv.handleModelRelations)
 	srv.mux.HandleFunc("POST /api/query/build", srv.handleQueryBuild)
@@ -256,89 +254,38 @@ func (s *Server) handleModelRelations(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+			// For reverse relations (no @relation attr), look up the other side.
+			if ri.ForeignKey == "" || ri.References == "" {
+				targetModel := s.findModel(string(f.Type))
+				if targetModel != nil {
+					for _, tf := range targetModel.Fields {
+						if string(tf.Type) == name {
+							// Found the owning side — extract its @relation
+							for _, a := range tf.Attributes {
+								if a.Name == "relation" {
+									for _, arg := range a.Args {
+										arg = strings.TrimSpace(arg)
+										if strings.HasPrefix(arg, "fields:") {
+											// The FK lives on the target model
+											ri.ForeignKey = strings.Trim(strings.TrimPrefix(arg, "fields:"), " []")
+										}
+										if strings.HasPrefix(arg, "references:") {
+											ri.References = strings.Trim(strings.TrimPrefix(arg, "references:"), " []")
+										}
+									}
+								}
+							}
+							break
+						}
+					}
+				}
+			}
 			relations = append(relations, ri)
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(relations); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *Server) handleQueryPreview(w http.ResponseWriter, r *http.Request) {
-	var req QueryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.Name == "" || req.ModelName == "" {
-		http.Error(w, "name and modelName are required", http.StatusBadRequest)
-		return
-	}
-
-	def := toCodegenDef(&req)
-	code, err := codegen.GenerateCustomQuery(def, s.schema)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var structCode string
-	if len(req.Joins) > 0 {
-		structCode, err = codegen.GenerateJoinResultStruct(def, s.schema)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	resp := map[string]string{"code": code, "structCode": structCode}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *Server) handleQuerySave(w http.ResponseWriter, r *http.Request) {
-	var req QueryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.Name == "" || req.ModelName == "" || req.OutputPath == "" {
-		http.Error(w, "name, modelName, and outputPath are required", http.StatusBadRequest)
-		return
-	}
-
-	def := toCodegenDef(&req)
-	code, err := codegen.GenerateCustomQuery(def, s.schema)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// If there are joins, prepend the result struct.
-	if len(req.Joins) > 0 {
-		structCode, err := codegen.GenerateJoinResultStruct(def, s.schema)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		code = structCode + "\n" + code
-	}
-
-	if err := codegen.AppendToRepoFile(req.OutputPath, code); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	resp := map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Added %s to %s", req.Name, req.OutputPath),
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -500,41 +447,3 @@ func convertIncludes(nodes []IncludeNodeRequest) []codegen.IncludeNode {
 	return result
 }
 
-func toCodegenDef(req *QueryRequest) *codegen.QueryDefinition {
-	var wheres []codegen.WhereClause
-	for _, w := range req.Where {
-		wheres = append(wheres, codegen.WhereClause{
-			Field:     w.Field,
-			Operator:  w.Operator,
-			ParamName: w.ParamName,
-			ParamType: w.ParamType,
-		})
-	}
-	var orders []codegen.OrderClause
-	for _, o := range req.OrderBy {
-		orders = append(orders, codegen.OrderClause{
-			Field:     o.Field,
-			Direction: o.Direction,
-		})
-	}
-	var joins []codegen.JoinClause
-	for _, j := range req.Joins {
-		joins = append(joins, codegen.JoinClause{
-			ModelName:    j.ModelName,
-			Fields:       j.Fields,
-			ForeignKey:   j.ForeignKey,
-			ReferenceKey: j.ReferenceKey,
-			Type:         j.Type,
-		})
-	}
-	return &codegen.QueryDefinition{
-		Name:      req.Name,
-		ModelName: req.ModelName,
-		Operation: mapOperation(req.Operation),
-		Fields:    req.Fields,
-		Where:     wheres,
-		OrderBy:   orders,
-		Limit:     req.Limit,
-		Joins:     joins,
-	}
-}
